@@ -1,1 +1,4 @@
 driver/
+installer/*
+
+!installer/README.md

@@ -184,6 +184,82 @@ diff '--color=auto' -ruN NVIDIA-Linux-x86_64-570.133.07/kernel-open/nvidia-uvm/u
 +NV_STATUS uvm_api_dump_gpu_memory(UVM_DUMP_GPU_MEMORY_PARAMS *params, struct file *filp);
 +
 +
- static UvmEventFatalReason uvm_tools_status_to_fatal_fault_reason(NV_STATUS status)
- {
-     switch (status) {
+static UvmEventFatalReason uvm_tools_status_to_fatal_fault_reason(NV_STATUS status)
+{
+    switch (status) {
+
+diff '--color=auto' -ruN NVIDIA-Linux-x86_64-570.133.07/src/nvidia/src/kernel/gpu/gr/kernel_graphics.c NVIDIA-Linux-x86_64-570.133.07-patched/src/nvidia/src/kernel/gpu/gr/kernel_graphics.c
+--- NVIDIA-Linux-x86_64-570.133.07/src/nvidia/src/kernel/gpu/gr/kernel_graphics.c	2025-03-14 13:57:28.000000000 +0100
++++ NVIDIA-Linux-x86_64-570.133.07-patched/src/nvidia/src/kernel/gpu/gr/kernel_graphics.c	2025-05-11 00:00:00.000000000 +0900
+@@ -2677,6 +2677,10 @@
+     return NV_OK;
+ }
+ 
++// added by zzk to make userspace report one SM
++#define ZZK_FAKE_SM_COUNT 1U
++#define ZZK_FAKE_GPC_TPC_MASK 0x1U
++
+ static NV_STATUS
+ _kgraphicsCtrlCmdGrGetInfoV2
+ (
+@@ -2730,6 +2734,23 @@
+     {
+         NV_CHECK_OR_RETURN(LEVEL_ERROR, pParams->grInfoList[i].index < NV2080_CTRL_GR_INFO_MAX_SIZE, NV_ERR_INVALID_ARGUMENT);
+         pParams->grInfoList[i].data = pGrInfo->infoList[pParams->grInfoList[i].index].data;
++
++        switch (pParams->grInfoList[i].index)
++        {
++            case NV2080_CTRL_GR_INFO_INDEX_THREAD_STACK_SCALING_FACTOR:
++            case NV2080_CTRL_GR_INFO_INDEX_SHADER_PIPE_COUNT:
++            case NV2080_CTRL_GR_INFO_INDEX_SHADER_PIPE_SUB_COUNT:
++            case NV2080_CTRL_GR_INFO_INDEX_LITTER_NUM_SM_PER_TPC:
++                pParams->grInfoList[i].data = ZZK_FAKE_SM_COUNT;
++                break;
++            case NV2080_CTRL_GR_INFO_INDEX_GPU_CORE_COUNT:
++                pParams->grInfoList[i].data =
++                    pGrInfo->infoList[NV2080_CTRL_GR_INFO_INDEX_MAX_SP_PER_SM].data *
++                    ZZK_FAKE_SM_COUNT;
++                break;
++            default:
++                break;
++        }
+     }
+ 
+     return status;
+@@ -3168,6 +3189,9 @@
+         pParams->gpcMask = pKernelGraphicsStaticInfo->floorsweepingMasks.gpcMask;
+     }
+ 
++    // Report a single GPC to userspace so SM discovery collapses to one SM.
++    pParams->gpcMask = ZZK_FAKE_GPC_TPC_MASK;
++
+     return status;
+ }
+ 
+@@ -3223,6 +3247,9 @@
+         pParams->tpcMask = pKernelGraphicsStaticInfo->floorsweepingMasks.tpcMask[pParams->gpcId];
+     }
+ 
++    // Report a single TPC under the visible GPC.
++    pParams->tpcMask = (pParams->gpcId == 0) ? ZZK_FAKE_GPC_TPC_MASK : 0;
++
+     return status;
+ }
+ 
+@@ -3256,6 +3283,7 @@
+     }
+ 
+     pParams->numTpcs = pKernelGraphicsStaticInfo->floorsweepingMasks.tpcCount[pParams->gpcId];
++    pParams->numTpcs = (pParams->gpcId == 0) ? ZZK_FAKE_SM_COUNT : 0;
+ 
+     return NV_OK;
+ }
+@@ -4082,6 +4110,8 @@
+ 
+     pParams->physGfxGpcMask = pKernelGraphicsStaticInfo->floorsweepingMasks.physGfxGpcMask;
+     pParams->numGfxTpc = pKernelGraphicsStaticInfo->floorsweepingMasks.numGfxTpc;
++    pParams->physGfxGpcMask = ZZK_FAKE_GPC_TPC_MASK;
++    pParams->numGfxTpc = ZZK_FAKE_SM_COUNT;
+ 
+     return NV_OK;
+ }
